@@ -1,20 +1,154 @@
-# Automated Access Review
+# Automated Access Review — Data Reconciliation and Exception Detection
 
-Portfolio overview of an automation workflow for comparing and checking structured access-control records.
+**Python / pandas workflow · Multi-source access-data consistency review**
 
-## Technical themes
-- Parsing and cleaning tabular data
-- Standardizing fields across source files
-- Record comparison and consistency checks
-- Supporting manual review with generated outputs
+This repository contains two historical variants of an automated access-review project: a Python script and a Jupyter notebook. The project explores how to transform exports from several access-control/authorization systems into comparable tables, flag inconsistencies, and produce reviewable reports.
 
-## Technologies
-Python and pandas; original experiments also used notebook-based workflows.
+> **Scope:** This is a work-context prototype and a **decision-support/reconciliation tool**, not an identity-management product or an autonomous system that grants, disables or revokes physical access. A flag indicates something to investigate; final decisions require authorized human review.
 
-## Repository status
-**Overview only; operational source code is not published.** The original work may contain restricted business processes, security-related data structures and identifiers. No personnel records, credentials, facility data or operational configuration is included.
+## Problem and motivation
 
-A generic demonstration with synthetic records may be added if appropriate.
+Reviewing user access manually becomes harder when records are distributed across multiple sources, with different layouts, spelling conventions, identifiers, and update schedules. Someone may be marked as terminated in one record but remain present in a separate credential system; another may have inconsistent card numbers or key-tag authorizations.
 
-## Purpose
-Portfolio description of data-processing automation while maintaining security and confidentiality boundaries.
+The scripts aim to help reviewers locate potential exceptions without manually comparing every row. Their technical focus is **data extraction, schema normalization, cross-system matching, rule-based checks, and exception reporting**.
+
+## Sources referenced by the historical workflow
+
+The source code contains organization- and site-specific terminology. This README describes source roles conceptually; sample exports and personnel records are **not included**.
+
+| Source role | What the scripts use it for |
+| --- | --- |
+| Customer authorization summary (CAAR-style sheets) | Customer records, names, authorization entries, statuses and site-specific access information |
+| Access control export (LIA-style CSV) | Credential owner and credential identifier comparisons |
+| Staff/physical-access export (P1-style Excel) | Names and card numbers for another access system |
+| User / credential management export (KMS-style HTML) | Person-level fields, access groups, badge/RFID identifiers and key-tag information |
+| Key-tag / key-rack mapping | Rules for determining which physical key tags correspond to customer groups |
+
+**Terminology note:** These abbreviations describe the historical project data sources; they are not general-purpose input specifications or a promise of interoperability with other products.
+
+## High-level workflow
+
+```text
+Multiple authorized exports / sheets
+               |
+               v
+HTML, CSV, Excel and spreadsheet extraction
+               |
+               v
+Field cleaning and normalization
+               |
+      +--------+--------+----------------+
+      |                 |                |
+      v                 v                v
+Account status     RFID/card IDs     Key-tag / group
+consistency        reconciliation      authorization
+      |                 |                |
+      +--------+--------+----------------+
+               |
+               v
+Exceptions and reconciliation tables
+               |
+               v
+CSV / Excel outputs for human review
+```
+
+## Implemented processing stages
+
+### 1. Extract and standardize heterogeneous records
+
+The notebooks and Python script import **pandas**, parse HTML tables with **BeautifulSoup**, and read CSV/Excel and spreadsheet records. The source contains helpers such as `extract_user_info`, `extract_credentials`, and `process_csv`.
+
+One stage parses formatted user-information text into fields including first/last name, email, phone, department, terminal level, user groups and RFID. Another extracts numeric credential identifiers from mixed text. These parsers are shaped by the original export layout and are **not robust general-purpose parsers**.
+
+Some paths and Google Colab authentication code are specific to the original environment. The data sources must be provided and authorized by a user with appropriate permissions.
+
+### 2. Normalize names, statuses and identifiers
+
+The workflow trims and normalizes strings, combines first/last names, and compares identifiers across sources. Several sections account for inconsistent name formatting. The Python script includes `normalize_name`, `get_name_components`, and component-matching helpers.
+
+**Limitation:** The notebook's component-matching heuristic may treat two names as the same if they share at least **two name components**. That is a heuristic, **not** authoritative identity verification. Different people may share name components and one person's name may be recorded differently across systems. Use authoritative IDs and human review before acting.
+
+### 3. Flag inconsistent access status
+
+The notebook experiments compare authorization-summary statuses with credential-system membership. Example categories generated by the logic include:
+
+- Active in the authorization summary and present in the corresponding access system.
+- Active in the summary but missing from the access export.
+- Terminated in the summary but still listed with access.
+- Present in the access export but absent from the authorization summary.
+- Present in a credential system while the corresponding status field is missing or unclear.
+
+These categories are **review cues**. They do not prove unauthorized entry, system malfunction, or employee wrongdoing. Differences can arise from delayed synchronization, duplicate names, data freshness, or export problems.
+
+### 4. Compare RFID / card identifiers
+
+The reconciliation logic assembles names and card identifiers from multiple platforms, looks for likely corresponding people, and groups outcomes such as:
+
+- A record present in only one dataset.
+- Matching identifiers across all datasets.
+- Partial matching among a subset of systems.
+
+The notebook includes `check_rfid_consistency_by_component_matching` and writes a CSV of comparison results. Because names are not reliable unique identifiers, the output should be checked against approved identity data before any security operation.
+
+### 5. Review key-tag authorization
+
+Additional notebook sections derive key-rack mappings and compare assigned tags against user/customer groups. The program attempts to distinguish valid and potentially invalid key-tag associations according to the source mapping.
+
+These are rules coded for a specific historical configuration. They should **not** be assumed correct for other facilities, or for changed access policies, without validation.
+
+### 6. Produce reports
+
+The script/notebook variants create intermediate CSV files and review tables, with a later notebook section combining outputs into an Excel workbook. The code is a mixture of runnable stages, research iterations, assumptions and manual steps; not every section is a fully automated, standalone function.
+
+## Repository contents
+
+| File | What it contains |
+| --- | --- |
+| [`automatic_access_reviewer_jktall.py`](automatic_access_reviewer_jktall.py) | Python export of the access-review workflow, including source parsing, data comparisons and rule checks |
+| [`automatic_access_reviewer_jktall_pcws.ipynb`](automatic_access_reviewer_jktall_pcws.ipynb) | Notebook-based revisions, including local-path processing, additional comparison experiments and report generation |
+| [`README.md`](README.md) | Architecture, source roles, behavior and limitations |
+| [`.gitignore`](.gitignore) | Basic exclusions for exported data and local working files |
+
+The Python script and notebook are **not exact duplicates**: some stages, paths and checks differ. Treat them as two historical variants rather than interchangeable entry points.
+
+## Environment and reproduction
+
+**Libraries observed:** Python 3, pandas, NumPy, BeautifulSoup (`bs4`), requests, Google Colab / Google authentication / gspread in the script, and Excel readers/writers in notebook workflows.
+
+Illustrative setup for local inspection:
+
+```bash
+python -m venv .venv
+# Activate it using your platform's command
+python -m pip install pandas numpy beautifulsoup4 requests openpyxl xlrd gspread google-auth notebook
+jupyter notebook
+```
+
+The historical Google Colab integration has additional environment-specific requirements. There is **no documented, clean one-command setup**. You will need to replace original hardcoded paths, verify input schemas, configure appropriately authorized access to data sources, and execute only the relevant stages. The code has not been independently integration-tested against synthetic datasets in a fresh environment.
+
+## Security, privacy and reliability considerations
+
+**The current repository is publicly visible.** Original scripts may contain infrastructure-/workflow-specific naming, local account identifiers or hardcoded operational assumptions. They should undergo an organizational permission and security review before further redistribution or reuse. Do **not** commit real employee/customer details, access-card numbers, RFID values, door configurations, login tokens, credentials, or production exports.
+
+Additional limitations:
+
+- **Matching errors:** Shared, abbreviated or inconsistent names can produce false matches or missed matches.
+- **Status freshness:** A stale export can incorrectly suggest that an account is active or terminated.
+- **Rule correctness:** Review conditions depend on organizational policy and historical key-tag mappings.
+- **Input fragility:** Spreadsheet positions, headers, export schemas and file naming are tightly coupled to this code.
+- **No automatic enforcement:** The scripts report potential issues; they do not provide a vetted authorization engine or automatically revoke access.
+- **No formal benchmark:** There are no published reviewer-time savings, false-positive rates, coverage statistics or controlled test cases.
+- **Human decision-making:** All exceptions should be verified against authoritative, current records before making a change.
+
+## Engineering lessons and potential improvements
+
+The project illustrates practical problems in operational data engineering: **inconsistent schemas, imperfect identifiers, cross-system reconciliation, and the difference between suspicious records and confirmed incidents**.
+
+A future **generalized and permission-cleared demonstration** could improve the original design by separating I/O adapters from business rules, replacing hardcoded paths with configuration, introducing stable identity keys, creating anonymized synthetic test data, recording rule/version provenance, and providing automated regression tests for each exception category.
+
+## Attribution and use
+
+This repository documents a historical workplace automation project and does not imply ownership of any third-party access systems, organizational datasets, export formats or business policies. Any organizational material or third-party code must remain subject to its applicable permissions. Use the methodology only in systems and environments you are authorized to inspect.
+
+---
+*Portfolio interpretation: applied Python data processing and rule-based reconciliation, not proof of a fully deployed compliance platform or a replacement for professional access-control review.*
